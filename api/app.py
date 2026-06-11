@@ -5,7 +5,7 @@ import pandas as pd
 
 app = Flask(__name__)
 
-# 將全端網頁宣告為單一字串
+# 將全端網頁（大谷專區 + 逐場折線圖 + 球隊分析）宣告為單一字串
 FRONTEND_HTML = """
 <!DOCTYPE html>
 <html lang="zh-TW">
@@ -79,24 +79,36 @@ FRONTEND_HTML = """
                             </div>
                         </div>
                         
-                        <div class="row">
-                            <div class="col-md-6 mb-4 mb-md-0">
-                                <div class="border rounded p-3 bg-white">
-                                    <h6 class="fw-bold text-muted mb-3">打擊型態指標視覺化</h6>
-                                    <div style="position: relative; height:250px;">
+                        <div class="row my-4">
+                            <div class="col-md-6 mb-4">
+                                <div class="border rounded p-3 bg-white h-100">
+                                    <h6 class="fw-bold text-muted mb-3">📊 打擊型態指標（賽季總計）</h6>
+                                    <div style="position: relative; height: 280px;">
                                         <canvas id="ohtaniRadarChart"></canvas>
                                     </div>
                                 </div>
                             </div>
-                            <div class="col-md-6">
+                            <div class="col-md-6 mb-4">
                                 <div class="border rounded p-3 bg-white h-100">
-                                    <h6 class="fw-bold text-muted mb-2">數據深度解讀</h6>
-                                    <p class="text-dark small" id="ohtaniAnalysisText">
+                                    <h6 class="fw-bold text-muted mb-3">📈 2026 賽季：逐場累計打擊率走勢折線圖</h6>
+                                    <div style="position: relative; height: 280px;">
+                                        <canvas id="ohtaniLineChart"></canvas>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-12">
+                                <div class="border rounded p-3 bg-white">
+                                    <h6 class="fw-bold text-muted mb-2">💡 大谷數據深度智慧解讀</h6>
+                                    <p class="text-dark small mb-0" id="ohtaniAnalysisText">
                                         正在分析數據中...
                                     </p>
                                 </div>
                             </div>
                         </div>
+
                     </div>
                 </div>
             </div>
@@ -139,14 +151,15 @@ FRONTEND_HTML = """
             .then(response => response.json())
             .then(res => {
                 if(res.status === 'success') {
-                    renderOhtaniSection(res.ohtani_analysis);
+                    renderOhtaniSection(res.ohtani_analysis, res.ohtani_logs);
                     renderTeamSection(res.team_analysis);
                 } else {
                     alert('資料載入失敗: ' + res.message);
                 }
             });
 
-        function renderOhtaniSection(ohtani) {
+        function renderOhtaniSection(ohtani, logs) {
+            // 1. 填入大谷傳統與進階數據面版
             document.getElementById('ohtaniSlash').innerText = `${ohtani.avg} / ${ohtani.obp} / ${ohtani.slg}`;
             document.getElementById('ohtaniHr').innerText = `${ohtani.home_runs} 全壘打`;
             document.getElementById('ohtaniRbi').innerText = `${ohtani.rbi} 打點`;
@@ -158,50 +171,97 @@ FRONTEND_HTML = """
             document.getElementById('metricEye').innerText = ohtani.obp_avg_diff;
             document.getElementById('metricGames').innerText = ohtani.games_played;
 
-            let interpretation = `大谷翔平在當前球季出賽 ${ohtani.games_played} 場，擊出 ${ohtani.home_runs} 支全壘打。`;
-            interpretation += ` 在進階指標上，他的純長打率 (ISO) 為 <strong>${ohtani.iso}</strong>，`;
+            // 2. 智慧文字分析
+            let interpretation = `大谷翔平在 2026 球季目前出賽 ${ohtani.games_played} 場。`;
+            interpretation += ` 他的純長打率 (ISO) 為 <strong>${ohtani.iso}</strong>，`;
             if (parseFloat(ohtani.iso) >= 0.250) {
-                interpretation += `這顯示出<strong>極為恐怖的菁英級長打火力和重擊球能力</strong>。`;
+                interpretation += `處於<strong>極為恐怖的菁英大砲型狀態</strong>。`;
             } else {
-                interpretation += `長打火力處於常態範圍的穩定發揮狀態。`;
+                interpretation += `長打火力發揮相對穩定。`;
             }
-            
-            interpretation += `<br/><br/>在選球與判斷指標方面，他的保送三振比 (BB/K) 為 <strong>${ohtani.bb_k_ratio}</strong>，打擊率與上壘率的差距 (OBP-AVG) 為 <strong>${ohtani.obp_avg_diff}</strong>。這代表他在追求極致長打的同時，`;
-            if (parseFloat(ohtani.bb_k_ratio) > 0.6) {
-                interpretation += `仍舊維持了非常優異的被動選球與高紀律保送率，能有效擴大對投手的威脅性。`;
-            } else {
-                interpretation += `目前的被三振率稍高，這是他全力揮棒、追求擊球初速與長打時常伴隨的盲點。`;
-            }
+            interpretation += ` 透過下方的逐場折線圖，你可以觀察到他隨著球季推進，克服開季慢熱或低潮的打擊率波動曲線。`;
             document.getElementById('ohtaniAnalysisText').innerHTML = interpretation;
 
-            const ctx = document.getElementById('ohtaniRadarChart').getContext('2d');
-            new Chart(ctx, {
+            // 3. 繪製長條圖（總體數據）
+            const ctxBar = document.getElementById('ohtaniRadarChart').getContext('2d');
+            new Chart(ctxBar, {
                 type: 'bar',
                 data: {
                     labels: ['打擊率 (AVG)', '上壘率 (OBP)', '長打率 (SLG)', '純長打率 (ISO)'],
                     datasets: [{
-                        label: '打擊指標數值',
+                        label: '賽季當前值',
                         data: [parseFloat(ohtani.avg), parseFloat(ohtani.obp), parseFloat(ohtani.slg), parseFloat(ohtani.iso)],
                         backgroundColor: ['rgba(54, 162, 235, 0.6)', 'rgba(75, 192, 192, 0.6)', 'rgba(255, 99, 132, 0.6)', 'rgba(255, 159, 64, 0.6)'],
                         borderColor: ['rgba(54, 162, 235, 1)', 'rgba(75, 192, 192, 1)', 'rgba(255, 99, 132, 1)', 'rgba(255, 159, 64, 1)'],
                         borderWidth: 1
                     }]
                 },
+                options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, max: 1.0 } } }
+            });
+
+            # 4. 🚀 繪製大谷 2026 逐場累計打擊率折線圖 🚀
+            const lineLabels = logs.map(log => log.date);
+            const lineDataAvg = logs.map(log => log.cum_avg);
+            const lineDataHits = logs.map(log => log.hits_in_game);
+
+            const ctxLine = document.getElementById('ohtaniLineChart').getContext('2d');
+            new Chart(ctxLine, {
+                type: 'line',
+                data: {
+                    labels: lineLabels,
+                    datasets: [
+                        {
+                            label: '當下累積打擊率 (AVG)',
+                            data: lineDataAvg,
+                            borderColor: 'rgb(255, 99, 132)',
+                            backgroundColor: 'rgba(255, 99, 132, 0.1)',
+                            borderWidth: 3,
+                            tension: 0.2, // 曲線平滑度
+                            yAxisID: 'y'
+                        },
+                        {
+                            type: 'bar',
+                            label: '單場安打數',
+                            data: lineDataHits,
+                            backgroundColor: 'rgba(54, 162, 235, 0.3)',
+                            borderColor: 'rgba(54, 162, 235, 0.7)',
+                            borderWidth: 1,
+                            yAxisID: 'y1'
+                        }
+                    ]
+                },
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
-                    scales: { y: { beginAtZero: true, max: 1.0 } }
+                    scales: {
+                        y: {
+                            type: 'linear',
+                            display: true,
+                            position: 'left',
+                            title: { display: true, text: '累積打擊率' },
+                            suggestedMin: 0.150,
+                            suggestedMax: 0.400
+                        },
+                        y1: {
+                            type: 'linear',
+                            display: true,
+                            position: 'right',
+                            title: { display: true, text: '單場安打數' },
+                            min: 0,
+                            max: 6,
+                            grid: { drawOnChartArea: false } // 隱藏右側網格線避免凌亂
+                        }
+                    }
                 }
             });
         }
 
         function renderTeamSection(teams) {
             const tableBody = document.querySelector('#dataTable tbody');
-            tableBody.innerHTML = ""; // 先清空舊資料
+            tableBody.innerHTML = "";
             const labels = [];
             const luckFactors = [];
 
-            // 修正點：只抓前 15 名放進圖表，避免圖表爆掉擠在一起
             const displayTeams = teams.slice(0, 15);
 
             teams.forEach(team => {
@@ -222,7 +282,7 @@ FRONTEND_HTML = """
 
             displayTeams.forEach(team => {
                 labels.push(team.team_name);
-                luckFactors.push(parseFloat(team.luck_factor) * 100); // 轉換為百分比數值
+                luckFactors.push(parseFloat(team.luck_factor) * 100);
             });
 
             const ctx = document.getElementById('mlbChart').getContext('2d');
@@ -241,13 +301,7 @@ FRONTEND_HTML = """
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
-                    scales: { 
-                        y: { 
-                            ticks: {
-                                callback: function(value) { return value + '%'; } // Y 軸加上 % 符號
-                            }
-                        } 
-                    }
+                    scales: { y: { ticks: { callback: function(value) { return value + '%'; } } } }
                 }
             });
         }
@@ -263,7 +317,7 @@ def index():
 @app.route('/api/analysis')
 def get_mlb_analysis():
     try:
-        # === 1. 大谷翔平 (ID: 660271) 數據抓取與 Pandas 深度分析 ===
+        # === 1. 大谷翔平 (ID: 660271) 賽季總計數據 ===
         player_stats = statsapi.player_stat_data(660271, group="hitting", type="season", sportId=1)
         
         ohtani_processed = {
@@ -305,24 +359,51 @@ def get_mlb_analysis():
                 "obp_avg_diff": f"{eye_diff:.3f}"
             }
 
-        # === 2. 聯盟球隊戰績期望值與運氣指數分析 (全面加上強制型態轉換) ===
+        # === 2. 🚀 大谷翔平 2026 逐場歷史 log 數據抓取與 Pandas 計算走勢 🚀 ===
+        game_logs = statsapi.player_game_logs(660271, group="hitting", season=2026)
+        logs_list = []
+        
+        if game_logs:
+            # 轉換成 DataFrame 方便進行時序滾動計算 (Rolling/Cumulative calculations)
+            df_logs = pd.DataFrame(game_logs)
+            
+            # 先將日期由舊到新排序（API 有時回傳是新到舊）
+            df_logs['gameDate'] = pd.to_datetime(df_logs['gameDate'])
+            df_logs = df_logs.sort_values(by='gameDate').reset_index(drop=True)
+            
+            # 將關鍵數據強制轉換為數字型態，避免地雷
+            df_logs['ab'] = df_logs['atBats'].astype(int)
+            df_logs['h'] = df_logs['hits'].astype(int)
+            
+            # 使用 Pandas 的 cumsum() 算出「每一場打完當下的累計打擊率」
+            df_logs['cum_ab'] = df_logs['ab'].cumsum()
+            df_logs['cum_h'] = df_logs['h'].cumsum()
+            df_logs['cum_avg'] = (df_logs['cum_h'] / df_logs['cum_ab']).round(3)
+            
+            # 整理要拋給前端折線圖的乾淨格式
+            for _, row in df_logs.iterrows():
+                # 只格式化日期字串簡短點 (如 2026-04-15)
+                date_str = row['gameDate'].strftime('%m-%d')
+                logs_list.append({
+                    "date": date_str,
+                    "hits_in_game": int(row['h']),
+                    "cum_avg": float(row['cum_avg']) if not pd.isna(row['cum_avg']) else 0.0
+                })
+
+        # === 3. 聯盟球隊戰績期望值與運氣指數分析 ===
         standings_data = statsapi.standings_data(leagueId="103,104", season=2026)
         raw_teams = []
         for div_id, div_info in standings_data.items():
             div_name = div_info['div_name']
             for team in div_info['teams']:
                 raw_teams.append({
-                    'division': div_name, 
-                    'team_name': team['name'],
-                    'w': int(team['w']), 
-                    'l': int(team['l']),
-                    'rs': float(team.get('rs', 0)), # 強制將得分轉為 float 確保 Pandas 平方計算正確
-                    'ra': float(team.get('ra', 0))  # 強制將失分轉為 float
+                    'division': div_name, 'team_name': team['name'],
+                    'w': int(team['w']), 'l': int(team['l']),
+                    'rs': float(team.get('rs', 0)), 'ra': float(team.get('ra', 0))
                 })
         
         df_teams = pd.DataFrame(raw_teams)
         if not df_teams.empty and 'rs' in df_teams.columns and df_teams['rs'].sum() > 0:
-            # 畢達哥拉斯期望勝率計算
             df_teams['expected_win_pct'] = (df_teams['rs']**2) / (df_teams['rs']**2 + df_teams['ra']**2)
             df_teams['actual_win_pct'] = df_teams['w'] / (df_teams['w'] + df_teams['l'])
             df_teams['luck_factor'] = df_teams['actual_win_pct'] - df_teams['expected_win_pct']
@@ -333,9 +414,11 @@ def get_mlb_analysis():
         df_teams = df_teams.sort_values(by='actual_win_pct', ascending=False)
         team_list = df_teams.to_dict(orient='records')
 
+        # 同時回傳三合一資料包
         return jsonify({
             "status": "success",
             "ohtani_analysis": ohtani_processed,
+            "ohtani_logs": logs_list,
             "team_analysis": team_list
         })
 
