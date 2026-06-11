@@ -5,7 +5,7 @@ import pandas as pd
 
 app = Flask(__name__)
 
-# 將全端網頁（大谷翔平專屬數據儀表板 + 球隊戰績分析）宣告為單一字串
+# 將全端網頁宣告為單一字串
 FRONTEND_HTML = """
 <!DOCTYPE html>
 <html lang="zh-TW">
@@ -92,7 +92,7 @@ FRONTEND_HTML = """
                                 <div class="border rounded p-3 bg-white h-100">
                                     <h6 class="fw-bold text-muted mb-2">數據深度解讀</h6>
                                     <p class="text-dark small" id="ohtaniAnalysisText">
-                                        正在從 MLB 官方 API 分析大谷翔平當前球季的揮棒品質與選球型態...
+                                        正在分析數據中...
                                     </p>
                                 </div>
                             </div>
@@ -135,7 +135,6 @@ FRONTEND_HTML = """
     </div>
 
     <script>
-        // 網頁載入後同時向後端撈取分析資料
         fetch('/api/analysis')
             .then(response => response.json())
             .then(res => {
@@ -148,7 +147,6 @@ FRONTEND_HTML = """
             });
 
         function renderOhtaniSection(ohtani) {
-            // 填入大谷傳統與進階數據
             document.getElementById('ohtaniSlash').innerText = `${ohtani.avg} / ${ohtani.obp} / ${ohtani.slg}`;
             document.getElementById('ohtaniHr').innerText = `${ohtani.home_runs} 全壘打`;
             document.getElementById('ohtaniRbi').innerText = `${ohtani.rbi} 打點`;
@@ -160,7 +158,6 @@ FRONTEND_HTML = """
             document.getElementById('metricEye').innerText = ohtani.obp_avg_diff;
             document.getElementById('metricGames').innerText = ohtani.games_played;
 
-            // 動態產生分析評語
             let interpretation = `大谷翔平在當前球季出賽 ${ohtani.games_played} 場，擊出 ${ohtani.home_runs} 支全壘打。`;
             interpretation += ` 在進階指標上，他的純長打率 (ISO) 為 <strong>${ohtani.iso}</strong>，`;
             if (parseFloat(ohtani.iso) >= 0.250) {
@@ -177,7 +174,6 @@ FRONTEND_HTML = """
             }
             document.getElementById('ohtaniAnalysisText').innerHTML = interpretation;
 
-            // 繪製大谷進階指標長條走勢圖
             const ctx = document.getElementById('ohtaniRadarChart').getContext('2d');
             new Chart(ctx, {
                 type: 'bar',
@@ -186,18 +182,8 @@ FRONTEND_HTML = """
                     datasets: [{
                         label: '打擊指標數值',
                         data: [parseFloat(ohtani.avg), parseFloat(ohtani.obp), parseFloat(ohtani.slg), parseFloat(ohtani.iso)],
-                        backgroundColor: [
-                            'rgba(54, 162, 235, 0.6)',
-                            'rgba(75, 192, 192, 0.6)',
-                            'rgba(255, 99, 132, 0.6)',
-                            'rgba(255, 159, 64, 0.6)'
-                        ],
-                        borderColor: [
-                            'rgba(54, 162, 235, 1)',
-                            'rgba(75, 192, 192, 1)',
-                            'rgba(255, 99, 132, 1)',
-                            'rgba(255, 159, 64, 1)'
-                        ],
+                        backgroundColor: ['rgba(54, 162, 235, 0.6)', 'rgba(75, 192, 192, 0.6)', 'rgba(255, 99, 132, 0.6)', 'rgba(255, 159, 64, 0.6)'],
+                        borderColor: ['rgba(54, 162, 235, 1)', 'rgba(75, 192, 192, 1)', 'rgba(255, 99, 132, 1)', 'rgba(255, 159, 64, 1)'],
                         borderWidth: 1
                     }]
                 },
@@ -211,44 +197,57 @@ FRONTEND_HTML = """
 
         function renderTeamSection(teams) {
             const tableBody = document.querySelector('#dataTable tbody');
+            tableBody.innerHTML = ""; // 先清空舊資料
             const labels = [];
             const luckFactors = [];
 
+            // 修正點：只抓前 15 名放進圖表，避免圖表爆掉擠在一起
+            const displayTeams = teams.slice(0, 15);
+
             teams.forEach(team => {
+                const luckVal = parseFloat(team.luck_factor) * 100;
                 const row = `
                     <tr>
                         <td class="fw-bold">${team.team_name}</td>
                         <td>${team.division}</td>
                         <td>${team.w} - ${team.l}</td>
-                        <td>${(team.actual_win_pct * 100).toFixed(1)}%</td>
-                        <td class="${team.luck_factor >= 0 ? 'text-success' : 'text-danger'}">
-                            ${team.luck_factor >= 0 ? '+' : ''}${(team.luck_factor * 100).toFixed(1)}%
+                        <td>${(parseFloat(team.actual_win_pct) * 100).toFixed(1)}%</td>
+                        <td class="${luckVal >= 0 ? 'text-success' : 'text-danger'}">
+                            ${luckVal >= 0 ? '+' : ''}${luckVal.toFixed(1)}%
                         </td>
                     </tr>
                 `;
                 tableBody.innerHTML += row;
+            });
 
+            displayTeams.forEach(team => {
                 labels.push(team.team_name);
-                luckFactors.push((team.luck_factor * 100).toFixed(2));
+                luckFactors.push(parseFloat(team.luck_factor) * 100); // 轉換為百分比數值
             });
 
             const ctx = document.getElementById('mlbChart').getContext('2d');
             new Chart(ctx, {
                 type: 'bar',
                 data: {
-                    labels: labels.slice(0, 15),
+                    labels: labels,
                     datasets: [{
                         label: '運氣成分 % (正值代表實際戰績高於期望勝率)',
-                        data: luckFactors.slice(0, 15),
-                        backgroundColor: luckFactors.slice(0, 15).map(val => val >= 0 ? 'rgba(40, 167, 69, 0.6)' : 'rgba(220, 53, 69, 0.6)'),
-                        borderColor: luckFactors.slice(0, 15).map(val => val >= 0 ? 'rgb(40, 167, 69)' : 'rgb(220, 53, 69)'),
+                        data: luckFactors,
+                        backgroundColor: luckFactors.map(val => val >= 0 ? 'rgba(40, 167, 69, 0.6)' : 'rgba(220, 53, 69, 0.6)'),
+                        borderColor: luckFactors.map(val => val >= 0 ? 'rgb(40, 167, 69)' : 'rgb(220, 53, 69)'),
                         borderWidth: 1
                     }]
                 },
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
-                    scales: { y: { beginAtZero: true } }
+                    scales: { 
+                        y: { 
+                            ticks: {
+                                callback: function(value) { return value + '%'; } // Y 軸加上 % 符號
+                            }
+                        } 
+                    }
                 }
             });
         }
@@ -265,10 +264,8 @@ def index():
 def get_mlb_analysis():
     try:
         # === 1. 大谷翔平 (ID: 660271) 數據抓取與 Pandas 深度分析 ===
-        # 抓取 2026 賽季大谷翔平的標準打擊數據
         player_stats = statsapi.player_stat_data(660271, group="hitting", type="season", sportId=1)
         
-        # 建立預設防錯字典，避免無比賽時格式損壞
         ohtani_processed = {
             "games_played": 0, "home_runs": 0, "rbi": 0,
             "avg": ".000", "obp": ".000", "slg": ".000", "ops": ".000",
@@ -279,7 +276,6 @@ def get_mlb_analysis():
             raw_stats = player_stats['stats'][0]['stats']
             s_series = pd.Series(raw_stats)
             
-            # 強制進行型態轉換，避免 API 丟出原始字串造成格式化字串時 ValueError 
             ab = int(s_series.get('atBats', 0))
             hr = int(s_series.get('homeRuns', 0))
             bb = int(s_series.get('baseOnBalls', 0))
@@ -290,7 +286,6 @@ def get_mlb_analysis():
             slg_val = float(s_series.get('slg', 0.0))
             ops_val = float(s_series.get('ops', 0.0))
             
-            # 用轉換後的乾淨浮點數運算 Sabermetrics 指標
             iso_val = slg_val - avg_val                          
             bb_k = round(bb / so, 2) if so > 0 else bb           
             ab_hr = round(ab / hr, 1) if hr > 0 else 0.0         
@@ -310,20 +305,24 @@ def get_mlb_analysis():
                 "obp_avg_diff": f"{eye_diff:.3f}"
             }
 
-        # === 2. 聯盟球隊戰績期望值與運氣指數分析 ===
+        # === 2. 聯盟球隊戰績期望值與運氣指數分析 (全面加上強制型態轉換) ===
         standings_data = statsapi.standings_data(leagueId="103,104", season=2026)
         raw_teams = []
         for div_id, div_info in standings_data.items():
             div_name = div_info['div_name']
             for team in div_info['teams']:
                 raw_teams.append({
-                    'division': div_name, 'team_name': team['name'],
-                    'w': team['w'], 'l': team['l'],
-                    'rs': team.get('rs', 0), 'ra': team.get('ra', 0)
+                    'division': div_name, 
+                    'team_name': team['name'],
+                    'w': int(team['w']), 
+                    'l': int(team['l']),
+                    'rs': float(team.get('rs', 0)), # 強制將得分轉為 float 確保 Pandas 平方計算正確
+                    'ra': float(team.get('ra', 0))  # 強制將失分轉為 float
                 })
         
         df_teams = pd.DataFrame(raw_teams)
         if not df_teams.empty and 'rs' in df_teams.columns and df_teams['rs'].sum() > 0:
+            # 畢達哥拉斯期望勝率計算
             df_teams['expected_win_pct'] = (df_teams['rs']**2) / (df_teams['rs']**2 + df_teams['ra']**2)
             df_teams['actual_win_pct'] = df_teams['w'] / (df_teams['w'] + df_teams['l'])
             df_teams['luck_factor'] = df_teams['actual_win_pct'] - df_teams['expected_win_pct']
@@ -334,7 +333,6 @@ def get_mlb_analysis():
         df_teams = df_teams.sort_values(by='actual_win_pct', ascending=False)
         team_list = df_teams.to_dict(orient='records')
 
-        # 同時打包回傳
         return jsonify({
             "status": "success",
             "ohtani_analysis": ohtani_processed,
