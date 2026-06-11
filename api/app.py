@@ -83,7 +83,9 @@ FRONTEND_HTML = """
                             <div class="col-md-6 mb-4 mb-md-0">
                                 <div class="border rounded p-3 bg-white">
                                     <h6 class="fw-bold text-muted mb-3">打擊型態指標視覺化</h6>
-                                    <canvas id="ohtaniRadarChart" style="max-height: 250px;"></canvas>
+                                    <div style="position: relative; height:250px;">
+                                        <canvas id="ohtaniRadarChart"></canvas>
+                                    </div>
                                 </div>
                             </div>
                             <div class="col-md-6">
@@ -107,8 +109,8 @@ FRONTEND_HTML = """
                         <h3 class="card-title mb-0 fw-bold">聯盟球隊期望勝率與運氣指數 (Luck Factor)</h3>
                     </div>
                     <div class="card-body p-4">
-                        <div class="mb-4">
-                            <canvas id="mlbChart" style="width: 100%; height: 350px;"></canvas>
+                        <div class="mb-4" style="position: relative; height:350px;">
+                            <canvas id="mlbChart"></canvas>
                         </div>
                         <h4 class="mb-3 fw-bold">球隊深度數據表格</h4>
                         <div class="table-responsive">
@@ -159,15 +161,15 @@ FRONTEND_HTML = """
             document.getElementById('metricGames').innerText = ohtani.games_played;
 
             // 動態產生分析評語
-            let interpretation = `大谷翔平在 2026 球季出賽 ${ohtani.games_played} 場，擊出 ${ohtani.home_runs} 支全壘打。`;
+            let interpretation = `大谷翔平在當前球季出賽 ${ohtani.games_played} 場，擊出 ${ohtani.home_runs} 支全壘打。`;
             interpretation += ` 在進階指標上，他的純長打率 (ISO) 為 <strong>${ohtani.iso}</strong>，`;
             if (parseFloat(ohtani.iso) >= 0.250) {
                 interpretation += `這顯示出<strong>極為恐怖的菁英級長打火力和重擊球能力</strong>。`;
             } else {
-                interpretation += `長打火力處於中規中矩的穩定狀態。`;
+                interpretation += `長打火力處於常態範圍的穩定發揮狀態。`;
             }
             
-            interpretation += `<br/><br/>他的選球與判斷指標方面，保送三振比 (BB/K) 為 <strong>${ohtani.bb_k_ratio}</strong>，打擊率與上壘率的差距 (OBP-AVG) 為 <strong>${ohtani.obp_avg_diff}</strong>。這代表他在追求長打的同時，`;
+            interpretation += `<br/><br/>在選球與判斷指標方面，他的保送三振比 (BB/K) 為 <strong>${ohtani.bb_k_ratio}</strong>，打擊率與上壘率的差距 (OBP-AVG) 為 <strong>${ohtani.obp_avg_diff}</strong>。這代表他在追求極致長打的同時，`;
             if (parseFloat(ohtani.bb_k_ratio) > 0.6) {
                 interpretation += `仍舊維持了非常優異的被動選球與高紀律保送率，能有效擴大對投手的威脅性。`;
             } else {
@@ -182,8 +184,8 @@ FRONTEND_HTML = """
                 data: {
                     labels: ['打擊率 (AVG)', '上壘率 (OBP)', '長打率 (SLG)', '純長打率 (ISO)'],
                     datasets: [{
-                        label: '打擊打擊率指標走勢',
-                        data: [ohtani.avg, ohtani.obp, ohtani.slg, ohtani.iso],
+                        label: '打擊指標數值',
+                        data: [parseFloat(ohtani.avg), parseFloat(ohtani.obp), parseFloat(ohtani.slg), parseFloat(ohtani.iso)],
                         backgroundColor: [
                             'rgba(54, 162, 235, 0.6)',
                             'rgba(75, 192, 192, 0.6)',
@@ -262,11 +264,11 @@ def index():
 @app.route('/api/analysis')
 def get_mlb_analysis():
     try:
-        # === 1. 大谷翔平 (ID: 660271) 數據抓取與 Pandas 分析 ===
-        # 抓取 2026 賽季大谷翔平的標準打擊數據 (season=2026, group=hitting)
+        # === 1. 大谷翔平 (ID: 660271) 數據抓取與 Pandas 深度分析 ===
+        # 抓取 2026 賽季大谷翔平的標準打擊數據
         player_stats = statsapi.player_stat_data(660271, group="hitting", type="season", sportId=1)
         
-        # 建立預設防錯字典，若當前賽季無數據（例如非球季期間）不至於噴錯
+        # 建立預設防錯字典，避免無比賽時格式損壞
         ohtani_processed = {
             "games_played": 0, "home_runs": 0, "rbi": 0,
             "avg": ".000", "obp": ".000", "slg": ".000", "ops": ".000",
@@ -275,24 +277,24 @@ def get_mlb_analysis():
         
         if player_stats and 'stats' in player_stats and len(player_stats['stats']) > 0:
             raw_stats = player_stats['stats'][0]['stats']
-            
-            # 使用 Pandas 進行快速進階指標轉換與深度計算
             s_series = pd.Series(raw_stats)
             
-            # 取得基礎打擊項目的值
+            # 強制進行型態轉換，避免 API 丟出原始字串造成格式化字串時 ValueError 
             ab = int(s_series.get('atBats', 0))
             hr = int(s_series.get('homeRuns', 0))
             bb = int(s_series.get('baseOnBalls', 0))
             so = int(s_series.get('strikeOuts', 0))
+            
             avg_val = float(s_series.get('avg', 0.0))
             obp_val = float(s_series.get('obp', 0.0))
             slg_val = float(s_series.get('slg', 0.0))
+            ops_val = float(s_series.get('ops', 0.0))
             
-            # 透過 Pandas/Python 計算 Sabermetrics 經典進階數據
-            iso_val = slg_val - avg_val                          # ISO 純長打率：衡量球員純粹長打長打的含金量
-            bb_k = round(bb / so, 2) if so > 0 else bb           # BB/K：衡量選球紀律與盲打程度
-            ab_hr = round(ab / hr, 1) if hr > 0 else 0.0         # AB/HR：平均每幾打數能敲出一支全壘打
-            eye_diff = obp_val - avg_val                         # 上壘率與打擊率差：衡量純選球保送能力
+            # 用轉換後的乾淨浮點數運算 Sabermetrics 指標
+            iso_val = slg_val - avg_val                          
+            bb_k = round(bb / so, 2) if so > 0 else bb           
+            ab_hr = round(ab / hr, 1) if hr > 0 else 0.0         
+            eye_diff = obp_val - avg_val                         
 
             ohtani_processed = {
                 "games_played": int(s_series.get('gamesPlayed', 0)),
@@ -301,14 +303,14 @@ def get_mlb_analysis():
                 "avg": f"{avg_val:.3f}",
                 "obp": f"{obp_val:.3f}",
                 "slg": f"{slg_val:.3f}",
-                "ops": f"{s_series.get('ops', 0.0):.3f}",
+                "ops": f"{ops_val:.3f}",
                 "iso": f"{iso_val:.3f}",
                 "bb_k_ratio": f"{bb_k:.2f}",
                 "ab_per_hr": f"{ab_hr:.1f}",
                 "obp_avg_diff": f"{eye_diff:.3f}"
             }
 
-        # === 2. 聯盟球隊戰績期望值分析 (與原本邏輯相同) ===
+        # === 2. 聯盟球隊戰績期望值與運氣指數分析 ===
         standings_data = statsapi.standings_data(leagueId="103,104", season=2026)
         raw_teams = []
         for div_id, div_info in standings_data.items():
@@ -332,7 +334,7 @@ def get_mlb_analysis():
         df_teams = df_teams.sort_values(by='actual_win_pct', ascending=False)
         team_list = df_teams.to_dict(orient='records')
 
-        # 同時回傳大谷與球隊的分析結果
+        # 同時打包回傳
         return jsonify({
             "status": "success",
             "ohtani_analysis": ohtani_processed,
